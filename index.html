@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rede estereográfica de Wulff (hemisfério inferior)</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#1a1a1a;--muted:#666;--line:#c8c8c8;--accent:#1f5fa8;--danger:#b33;--panel:#f4f5f7}
+@media (prefers-color-scheme: dark){:root{--bg:#1b1d21;--fg:#eee;--muted:#aaa;--line:#4a4f57;--accent:#6aa7ea;--danger:#e77;--panel:#25282e}}
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--fg);margin:0;padding:16px;max-width:1100px;margin-left:auto;margin-right:auto}
+h1{font-size:1.3rem;margin:0 0 12px}
+h2{font-size:1.05rem;margin:22px 0 8px}
+.grid{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+#netwrap{flex:1 1 420px;max-width:540px}
+svg{width:100%;height:auto;color:var(--fg);display:block}
+.painel{flex:1 1 280px;max-width:380px;display:flex;flex-direction:column;gap:12px}
+fieldset{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--panel);margin:0}
+legend{padding:0 6px;font-weight:600;font-size:.9rem}
+label{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0;font-size:.92rem}
+label.chk{justify-content:flex-start}
+input[type=number]{width:110px;padding:5px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+button{padding:7px 12px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:6px;cursor:pointer;font-size:.9rem}
+button.sec{background:transparent;color:var(--accent)}
+button.perigo{background:transparent;color:var(--danger);border-color:var(--danger)}
+.botoes{display:flex;gap:8px}
+.nota{font-size:.8rem;color:var(--muted);margin:6px 0 0}
+#msg{font-size:.88rem;color:var(--danger);min-height:1.2em}
+table{border-collapse:collapse;font-size:.9rem;min-width:280px}
+th,td{border:1px solid var(--line);padding:4px 10px;text-align:center}
+th{background:var(--panel)}
+.vazio{color:var(--muted);font-size:.9rem}
+.leg{display:flex;flex-wrap:wrap;gap:12px;font-size:.8rem;color:var(--muted);margin-top:6px}
+</style>
+</head>
+<body>
+<h1>Rede estereográfica de Wulff — hemisfério inferior</h1>
+
+<div class="grid">
+  <div id="netwrap">
+    <svg id="net" viewBox="0 0 540 540" aria-label="Rede de Wulff"></svg>
+    <div class="leg">
+      <span style="color:#1f5fa8">● polo</span>
+      <span style="color:#c0392b">— plano</span>
+      <span style="color:#c0392b">■ polo de plano</span>
+      <span style="color:#1f5fa8">- - plano a partir de polo</span>
+      <span style="color:#1e8449">— zona</span>
+    </div>
+    <p class="nota">Projeção equiangular (Wulff), hemisfério inferior. Polo: azimute (trend) e inclinação (plunge). Plano: rumo pela regra da mão direita e inclinação para a direita do rumo.</p>
+  </div>
+
+  <div class="painel">
+    <fieldset>
+      <legend>Polo (azimute / inclinação)</legend>
+      <label>Azimute (0–360°) <input id="pAz" type="number" min="0" max="360" step="any"></label>
+      <label>Inclinação (0–90°) <input id="pIn" type="number" min="0" max="90" step="any"></label>
+      <button onclick="addPolo()">Adicionar polo</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Plano (regra da mão direita)</legend>
+      <label>Rumo (0–360°) <input id="sRu" type="number" min="0" max="360" step="any"></label>
+      <label>Inclinação (0–90°) <input id="sIn" type="number" min="0" max="90" step="any"></label>
+      <button onclick="addPlano()">Adicionar plano</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Opções de projeção</legend>
+      <label class="chk"><input type="checkbox" id="oPl" onchange="render()"> Projetar planos a partir de polos</label>
+      <label class="chk"><input type="checkbox" id="oPo" onchange="render()"> Projetar polos a partir de planos</label>
+      <label class="chk"><input type="checkbox" id="oZo" onchange="refresh()"> Projetar zonas com 2 ou mais polos</label>
+      <div id="escolhaPolos" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)"></div>
+    </fieldset>
+
+    <div class="botoes">
+      <button class="sec" onclick="undo()">Desfazer</button>
+      <button class="perigo" onclick="limpar()">Limpar</button>
+    </div>
+    <div id="msg"></div>
+  </div>
+</div>
+
+<h2>Polos</h2>
+<div id="tPolos"></div>
+
+<h2>Planos</h2>
+<div id="tPlanos"></div>
+
+<h2>Zonas</h2>
+<div id="tZonas"></div>
+
+<script>
+const R = 250, C = 270;
+const state = { items: [] }; // {id, tipo:'polo'|'plano', a, b}
+
+/* ---------- utilidades vetoriais (vetor = [Norte, Este, Baixo]) ---------- */
+const rad = d => d * Math.PI / 180;
+const deg = r => r * 180 / Math.PI;
+const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const norm = v => { const L = Math.hypot(v[0], v[1], v[2]); return v.map(x => x / L); };
+
+function fromTL(t, p) { // trend/plunge -> vetor (plunge positivo para baixo)
+  const T = rad(t), P = rad(p);
+  return [Math.cos(P)*Math.cos(T), Math.cos(P)*Math.sin(T), Math.sin(P)];
+}
+function toTL(v) { // vetor -> trend/plunge, sempre no hemisfério inferior
+  let [n, e, d] = norm(v);
+  if (d < 0) { n = -n; e = -e; d = -d; }
+  return [(deg(Math.atan2(e, n)) + 360) % 360, deg(Math.asin(Math.min(1, d)))];
+}
+
+/* normal (pólo) de cada entrada */
+function normalOf(it) {
+  if (it.tipo === 'polo') return fromTL(it.a, it.b);
+  // plano: rumo pela regra da mão direita -> pendor = rumo+90
+  // pólo do plano: trend = pendor+180 = rumo+270, plunge = 90 - inclinação
+  return fromTL((it.a + 270) % 360, 90 - it.b);
+}
+
+/* ---------- projeção Wulff, hemisfério inferior ---------- */
+function projRaw(v) { // sem inverter: assume d >= 0
+  const [n, e, d0] = norm(v);
+  const d = Math.max(-1, Math.min(1, d0));
+  const p = Math.asin(d);
+  const r = R * Math.tan((Math.PI/2 - p) / 2);
+  const t = Math.atan2(e, n);
+  return { x: C + r * Math.sin(t), y: C - r * Math.cos(t) };
+}
+function projPoint(v) { // ponto: força hemisfério inferior
+  let w = norm(v);
+  if (w[2] < 0) w = w.map(x => -x);
+  return projRaw(w);
+}
+function circlePts(n, steps = 240) { // pontos de um círculo máximo (plano normal a n)
+  const nn = norm(n);
+  const ref = Math.abs(nn[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+  const u = norm(cross(nn, ref));
+  const w = cross(nn, u);
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const th = 2 * Math.PI * i / steps;
+    pts.push([0,1,2].map(k => Math.cos(th)*u[k] + Math.sin(th)*w[k]));
+  }
+  return pts;
+}
+function arcRuns(pts) { // só a parte do hemisfério inferior (d >= 0), em segmentos
+  const runs = []; let cur = [];
+  for (const v of pts) {
+    if (v[2] >= -1e-9) cur.push(projRaw(v));
+    else if (cur.length) { runs.push(cur); cur = []; }
+  }
+  if (cur.length) runs.push(cur);
+  return runs;
+}
+function polylines(runs, attrs) {
+  return runs.filter(r => r.length > 1)
+    .map(r => `<polyline points="${r.map(p => p.x.toFixed(2)+','+p.y.toFixed(2)).join(' ')}" fill="none" ${attrs}/>`)
+    .join('');
+}
+
+/* ---------- grelha da rede (calculada uma vez) ---------- */
+const GRID = (() => {
+  let s = '';
+  for (let psi = 0; psi < 180; psi += 10) // círculos máximos: planos que contêm o eixo N-S
+    s += polylines(arcRuns(circlePts(fromTL(90, psi), 180)), 'stroke="#9aa3ad" stroke-width="0.6"');
+  for (let c = 10; c < 180; c += 10) { // pequenos círculos em torno do eixo E-W
+    const pts = [];
+    for (let i = 0; i <= 180; i++) {
+      const th = 2*Math.PI*i/180, cc = rad(c);
+      pts.push([Math.cos(cc), Math.sin(cc)*Math.cos(th), Math.sin(cc)*Math.sin(th)]); // pequenos círculos em torno do eixo N-S
+    }
+    s += polylines(arcRuns(pts), 'stroke="#9aa3ad" stroke-width="0.6"');
+  }
+  return s;
+})();
+
+/* ---------- valores próprios (Jacobi) para a zona ---------- */
+function matMul(A, B) {
+  return A.map((row, i) => [0,1,2].map(j => row[0]*B[0][j] + row[1]*B[1][j] + row[2]*B[2][j]));
+}
+function transpose(A) { return [0,1,2].map(i => [0,1,2].map(j => A[j][i])); }
+function eigenSym3(A) {
+  let a = A.map(r => r.slice());
+  let V = [[1,0,0],[0,1,0],[0,0,1]];
+  for (let it = 0; it < 100; it++) {
+    let p = 0, q = 1;
+    if (Math.abs(a[0][2]) > Math.abs(a[p][q])) { p = 0; q = 2; }
+    if (Math.abs(a[1][2]) > Math.abs(a[p][q])) { p = 1; q = 2; }
+    if (Math.abs(a[p][q]) < 1e-12) break;
+    const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+    const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta*theta + 1));
+    const c = 1 / Math.sqrt(t*t + 1), s = t * c;
+    const J = [[1,0,0],[0,1,0],[0,0,1]];
+    J[p][p] = c; J[q][q] = c; J[p][q] = s; J[q][p] = -s;
+    a = matMul(matMul(transpose(J), a), J);
+    V = matMul(V, J);
+  }
+  return { values: [a[0][0], a[1][1], a[2][2]], vectors: V };
+}
+
+/* ---------- zona: plano de melhor ajuste aos polos ---------- */
+function zonaInfo() {
+  const polos = state.items.filter(i => i.tipo === 'polo' && i.naZona !== false);
+  if (polos.length < 2) return null;
+  const M = [[0,0,0],[0,0,0],[0,0,0]];
+  for (const p of polos) {
+    const v = norm(fromTL(p.a, p.b));
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) M[i][j] += v[i]*v[j];
+  }
+  const { values, vectors } = eigenSym3(M);
+  let idx = 0;
+  for (let k = 1; k < 3; k++) if (values[k] < values[idx]) idx = k;
+  const n = [vectors[0][idx], vectors[1][idx], vectors[2][idx]];
+  const [t, p] = toTL(n);          // pólo da zona
+  const rumo = (t + 90) % 360;     // rumo RHR do plano da zona
+  const incl = 90 - p;             // inclinação do plano da zona
+  return { n, t, p, rumo, incl, count: polos.length };
+}
+
+/* ---------- ações ---------- */
+const valid = (x, lo, hi) => !isNaN(x) && x >= lo && x <= hi;
+function msg(t) { document.getElementById('msg').textContent = t || ''; }
+function addPolo() {
+  const a = parseFloat(pAz.value), b = parseFloat(pIn.value);
+  if (!valid(a, 0, 360) || !valid(b, 0, 90)) return msg('Azimute entre 0 e 360° e inclinação entre 0 e 90°.');
+  state.items.push({ id: state.items.length + 1, tipo: 'polo', a, b });
+  pAz.value = ''; pIn.value = ''; msg(''); refresh();
+}
+function addPlano() {
+  const a = parseFloat(sRu.value), b = parseFloat(sIn.value);
+  if (!valid(a, 0, 360) || !valid(b, 0, 90)) return msg('Rumo entre 0 e 360° e inclinação entre 0 e 90°.');
+  state.items.push({ id: state.items.length + 1, tipo: 'plano', a, b });
+  sRu.value = ''; sIn.value = ''; msg(''); refresh();
+}
+function togglePolo(id, marcado) {
+  const it = state.items.find(i => i.id === id);
+  if (it) it.naZona = marcado;
+  refresh();
+}
+function undo() { state.items.pop(); msg(''); refresh(); }
+function limpar() { state.items = []; msg(''); refresh(); }
+
+/* ---------- desenho ---------- */
+function render() {
+  const oPl = document.getElementById('oPl').checked;
+  const oPo = document.getElementById('oPo').checked;
+  const oZo = document.getElementById('oZo').checked;
+  let s = GRID;
+  s += `<circle cx="${C}" cy="${C}" r="${R}" fill="none" stroke="currentColor" stroke-width="1.6"/>`;
+  s += `<line x1="${C-R-8}" y1="${C}" x2="${C-R+4}" y2="${C}" stroke="currentColor"/>`;
+  s += `<text x="${C}" y="${C-R-8}" text-anchor="middle" font-size="13" fill="currentColor">N</text>`;
+  s += `<text x="${C+R+8}" y="${C+4}" font-size="13" fill="currentColor">E</text>`;
+  s += `<text x="${C}" y="${C+R+18}" text-anchor="middle" font-size="13" fill="currentColor">S</text>`;
+  s += `<text x="${C-R-14}" y="${C+4}" font-size="13" fill="currentColor">W</text>`;
+
+  for (const it of state.items) {
+    const n = normalOf(it);
+    const pts = circlePts(n);
+    if (it.tipo === 'plano') {
+      const runs = arcRuns(pts);
+      s += polylines(runs, 'stroke="#c0392b" stroke-width="1.8"');
+      if (runs.length && runs[0].length) {
+        const q = runs[0][0];
+        s += `<text x="${q.x+4}" y="${q.y-4}" font-size="12" fill="#c0392b">${it.id}</text>`;
+      }
+      if (oPo) {
+        const q = projPoint(n);
+        s += `<rect x="${q.x-4}" y="${q.y-4}" width="8" height="8" fill="#c0392b"/>`;
+        s += `<text x="${q.x+6}" y="${q.y-6}" font-size="12" fill="#c0392b">${it.id}</text>`;
+      }
+    } else {
+      if (oPl) {
+        const runs = arcRuns(pts);
+        s += polylines(runs, 'stroke="#1f5fa8" stroke-width="1.2" stroke-dasharray="5 4"');
+        if (runs.length && runs[0].length) {
+          const q = runs[0][0];
+          s += `<text x="${q.x+4}" y="${q.y-4}" font-size="11" fill="#1f5fa8">${it.id}</text>`;
+        }
+      }
+      const q = projPoint(n);
+      s += `<circle cx="${q.x}" cy="${q.y}" r="4.5" fill="#1f5fa8"/>`;
+      s += `<text x="${q.x+6}" y="${q.y-6}" font-size="12" fill="#1f5fa8">${it.id}</text>`;
+    }
+  }
+
+  const zona = oZo ? zonaInfo() : null;
+  if (zona) {
+    const runs = arcRuns(circlePts(zona.n));
+    s += polylines(runs, 'stroke="#1e8449" stroke-width="2.4"');
+    const q = projPoint(zona.n);
+    s += `<polygon points="${q.x},${q.y-5} ${q.x+5},${q.y+4} ${q.x-5},${q.y+4}" fill="#1e8449"/>`;
+    s += `<text x="${q.x+7}" y="${q.y-6}" font-size="12" fill="#1e8449">Z</text>`;
+  }
+
+  document.getElementById('net').innerHTML = s;
+  renderTables(zona);
+}
+
+function renderEscolha() {
+  const el = document.getElementById('escolhaPolos');
+  const polos = state.items.filter(i => i.tipo === 'polo');
+  const ativo = document.getElementById('oZo').checked;
+  el.style.display = ativo ? 'block' : 'none';
+  if (!ativo) return;
+  el.innerHTML = '<div style="font-size:.85rem;margin-bottom:4px">Polos incluídos na zona:</div>' +
+    (polos.length
+      ? polos.map(p => `<label class="chk" style="font-size:.88rem"><input type="checkbox" ${p.naZona !== false ? 'checked' : ''} onchange="togglePolo(${p.id}, this.checked)"> Nº ${p.id} (az. ${p.a.toFixed(1)}°, inc. ${p.b.toFixed(1)}°)</label>`).join('')
+      : '<span style="font-size:.85rem;color:var(--muted)">Ainda não há polos.</span>');
+}
+
+function renderTables(zona) {
+  renderEscolha();
+  const polos = state.items.filter(i => i.tipo === 'polo');
+  const planos = state.items.filter(i => i.tipo === 'plano');
+
+  document.getElementById('tPolos').innerHTML = polos.length
+    ? `<table><tr><th>Nº</th><th>Azimute (°)</th><th>Inclinação (°)</th></tr>` +
+      polos.map(p => `<tr><td>${p.id}</td><td>${p.a.toFixed(1)}</td><td>${p.b.toFixed(1)}</td></tr>`).join('') + `</table>`
+    : `<p class="vazio">Sem polos.</p>`;
+
+  document.getElementById('tPlanos').innerHTML = planos.length
+    ? `<table><tr><th>Nº</th><th>Rumo RHR (°)</th><th>Inclinação (°)</th><th>Azimute de pendor (°)</th></tr>` +
+      planos.map(p => `<tr><td>${p.id}</td><td>${p.a.toFixed(1)}</td><td>${p.b.toFixed(1)}</td><td>${((p.a+90)%360).toFixed(1)}</td></tr>`).join('') + `</table>`
+    : `<p class="vazio">Sem planos.</p>`;
+
+  const zEl = document.getElementById('tZonas');
+  if (!document.getElementById('oZo').checked) {
+    zEl.innerHTML = `<p class="vazio">Ative “Projetar zonas com 2 ou mais polos”.</p>`;
+  } else if (!zona) {
+    zEl.innerHTML = `<p class="vazio">Selecione pelo menos 2 polos.</p>`;
+  } else {
+    zEl.innerHTML = `<table><tr><th>Nº de polos</th><th>Rumo RHR (°)</th><th>Inclinação (°)</th><th>Pólo da zona: azimute (°)</th><th>Inclinação (°)</th></tr>` +
+      `<tr><td>${zona.count}</td><td>${zona.rumo.toFixed(1)}</td><td>${zona.incl.toFixed(1)}</td><td>${zona.t.toFixed(1)}</td><td>${zona.p.toFixed(1)}</td></tr></table>` +
+      `<p class="vazio">Plano de melhor ajuste aos polos (valor próprio mínimo da matriz de orientação).</p>`;
+  }
+}
+
+function refresh() { render(); }
+refresh();
+</script>
+</body>
+</html>
